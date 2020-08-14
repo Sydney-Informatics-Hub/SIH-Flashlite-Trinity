@@ -1,0 +1,53 @@
+#! /bin/bash
+
+#PBS -A NCMAS-ch81
+#PBS -l walltime=01:00:00
+#PBS -l select=1:ncpus=24:mem=20gb
+#PBS -N Trinity_test
+
+set -e
+
+module load singularity/2.5.2
+
+mem='20G'
+
+# Set trap
+# EXIT runs on any exit, signalled or not.
+finish(){
+                part=trinity_2
+		echo "$(date): Archiving ${sampleout} in ${TMPDIR} to ${outpath}/${sampleout}/${part}.tar"
+		cd ${TMPDIR}
+		mv ${sampleout} ${part}
+		tar -cf "${outpath}/${sampleout}/${part}.tar" "${part}"
+                echo "$(date): Saved to ${outpath}/${sampleout}/${part}"
+}
+trap finish EXIT
+
+# Set variables
+sample=Test
+sampleout=${sample}_trinity_v2.8.4
+outpath=/30days/rosemariesadsad/tracy/SIH-Flashlite-Trinity
+simg=/30days/rosemariesadsad/nat/trint.simg
+first=/30days/rosemariesadsad/tracy/SIH-Flashlite-Trinity/sample_data/reads.left.fq.gz
+second=/30days/rosemariesadsad/tracy/SIH-Flashlite-Trinity/sample_data/reads.right.fq.gz
+
+# Unpack trinity_1.tar to TMPDIR
+export LOCALOUT=${TMPDIR}/${sampleout}
+mkdir -p ${LOCALOUT}
+tar -xf ${outpath}/${sampleout}/trinity_1.tar -C ${LOCALOUT}
+mv ${LOCALOUT}/trinity_1/* ${LOCALOUT}
+rm -rf ${LOCALOUT}/trinity_1
+
+# Run trinity, stop after inchworm, do not run chrysalis
+singularity exec -B ${TMPDIR} ${simg} Trinity \
+		--seqType fq \
+                --max_memory ${mem} \
+                --left ${first} \
+                --right ${second} \
+                --no_normalize_reads \
+		            --CPU ${NCPUS} \
+                --output ${LOCALOUT} \
+                --verbose \
+		            --no_distributed_trinity_exec
+
+echo "$(date): Finished trinity 3"
