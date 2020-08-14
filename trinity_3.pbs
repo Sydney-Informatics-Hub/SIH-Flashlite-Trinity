@@ -1,0 +1,83 @@
+#! /bin/bash
+
+# MODULE LOADS MUST BE IN ~/.bash_profile FOR SOFTWARE TO WORK GLOBALLY IN GNU PARALLEL
+
+#PBS -A NCMAS-ch81
+#PBS -l walltime=00:10:00
+#PBS -l select=3:ncpus=2:mem=8gb
+#PBS -N Trinity_test
+
+set -e
+
+mem='8G'
+
+# Set trap
+# EXIT runs on any exit, signalled or not.
+finish(){
+                part=trinity_3
+		nodes=4
+		FILE=${outpath}/copy_back.sh
+		/bin/cat <<EOM >${FILE}
+#!/bin/bash
+echo "Copying data back from node \$1"
+cd ${LOCALOUT}/trinity_2
+tar -cf ${outpath}/${sampleout}/trinity_3_\$1.tar read_partitions
+EOM
+
+		chmod +x ${FILE}
+
+		# Copy data back from each node in parallel
+		for (( i=0; i < $nodes; i++ ))
+		do
+			echo "## pbsdsh -n ${i} ${FILE} ${i} &"
+			pbsdsh -n ${i} ${FILE} ${i} &
+		done
+
+		# Wait for all nodes to complete their tasks
+		wait
+
+		echo "$(date): Cleaning up..."
+		# Remove read_partitions directory and archive everything else
+		rm -rf ${LOCALOUT}/trinity_2/read_partitions
+		echo "$(date): Archiving ${sampleout} in ${TMPDIR} to ${outpath}/${sampleout}/${part}.tar"
+		cd ${LOCALOUT}
+		mv trinity_2 ${part}
+		tar -cf "${outpath}/${sampleout}/${part}.tar" "${part}"
+                echo "$(date): Saved to ${outpath}/${sampleout}/${part}"
+}
+trap finish EXIT
+
+# Set variables
+sample=Test
+sampleout=${sample}_trinity_v2.8.4
+outpath=/30days/rosemariesadsad/tracy/SIH-Flashlite-Trinity
+simg=/30days/rosemariesadsad/nat/trint.simg
+
+# Extract trinity_2.tar to ${TMPDIR} on each N=node (select=N)
+export LOCALOUT=${TMPDIR}/${sampleout}
+pbsdsh -s -- mkdir -p ${LOCALOUT}
+echo "## pbsdsh -s -- tar -xf ${outpath}/${sampleout}/trinity_2.tar -C ${LOCALOUT}"
+pbsdsh -s -- tar -xf ${outpath}/${sampleout}/trinity_2.tar -C ${LOCALOUT}
+cd ${LOCALOUT}/trinity_2
+
+# Copy simg local to node
+echo "$(date): Coping ${simg} to node"
+pbsdsh -s -- cp ${simg} ${PWD}
+lsimg="$(basename -- ${simg})"
+
+echo "$(date): Create new partitioned_reads.files.list containing new paths..."
+find ${PWD}/ -iname '*trinity.reads.fa' > partitioned_reads.files.list
+echo "$(date): Updating paths for recursive_trinity.cmds"
+# Change paths to input and output or recursive_trinity.cmds
+# Backup is created with .bak extension
+perl -pi.bak -e 's|--single \"[\S]+'${sampleout}'|--single "'${PWD}'|g' recursive_trinity.cmds
+perl -pi.bak2 -e 's|--output \"[\S]+'${sampleout}'|--output "'${PWD}'|g' recursive_trinity.cmds
+
+# Change Trinity to use singularity container
+perl -pi.bak3 -e 's|^(\S)*Trinity|singularity exec -B '${PWD}' '${lsimg}' Trinity|g' recursive_trinity.cmds
+
+# Run phase 2 of trinity
+# Commands are distrubuted once at a time (via pipe, stored in {%}
+# GNU parallel executes commands across nodes
+echo "$(date): Assemble clustered reads using GNU parallel"
+cat recursive_trinity.cmds | parallel -j ${PBS_NCPUS} pbsdsh -n {%} -- bash -l -c '{}'
