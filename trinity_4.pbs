@@ -1,0 +1,55 @@
+#! /bin/bash
+
+#PBS -A NCMAS-ch81
+#PBS -l walltime=01:00:00
+#PBS -l select=1:ncpus=24:mem=20gb
+#PBS -N Trinity_test
+
+set -e
+
+# Set trap
+# EXIT runs on any exit, signalled or not.
+finish(){
+                # Tidy and organise
+		cd ${outpath}/${sampleout}
+		tar -xf trinity_3.tar
+		mv trinity_3/* .
+		rm -rf ${LOCALOUT} trinity_3* ${lsimg}
+		echo "$(date): Trinity has completed. Output saved to ${outpath}/${sampleout}"
+}
+trap finish EXIT
+
+# Set variables
+sample=Test
+sampleout=${sample}_trinity_v2.8.4
+outpath=/30days/rosemariesadsad/tracy/SIH-Flashlite-Trinity
+simg=/30days/rosemariesadsad/nat/trint.simg
+lsimg="$(basename -- ${simg})"
+trinity_util=${outpath}/trinity_util
+
+echo "$(date) : Beginning trinity_4: Harvest reads into a final assembly"
+
+# Unpack trinity_1.tar to TMPDIR
+export LOCALOUT=${TMPDIR}/${sampleout}
+mkdir -p ${LOCALOUT}
+cd ${LOCALOUT}
+
+# Unpack tar from all nodes used in trinity_3
+nodes=4
+for (( i=0; i < $nodes; i++ ))
+do
+	tar -xf ${outpath}/${sampleout}/trinity_3_${i}.tar
+done
+
+echo "** Harvesting all assembled transcripts into a single multi-fasta file..."
+find read_partitions/ -name '*inity.fasta' | $trinity_util/support_scripts/partitioned_trinity_aggregator.pl --token_prefix TRINITY_DN --output_prefix Trinity.tmp
+mv Trinity.tmp.fasta ${outpath}/${sampleout}/Trinity.fasta
+
+echo `date` ": ** Creating genes_trans_map file with get_Trinity_gene_to_trans_map.pl..."
+$trinity_util/support_scripts/get_Trinity_gene_to_trans_map.pl ${outpath}/${sampleout}/Trinity.fasta > ${outpath}/${sampleout}/Trinity.fasta.gene_trans_map
+
+echo `date` ": ** Getting assembly stats..."
+$trinity_util/TrinityStats.pl ${outpath}/${sampleout}/Trinity.fasta > ${outpath}/${sampleout}/Trinity.fasta.stats
+
+# Clean up
+rm -rf read_partitions
