@@ -45,9 +45,9 @@ singularity exec -B ${TMPDIR} ${simg} Trinity \
                 --left ${first} \
                 --right ${second} \
                 --no_normalize_reads \
-		            --CPU ${NCPUS} \
+		--CPU ${NCPUS} \
                 --output ${LOCALOUT} \
                 --verbose \
-		            --no_run_chrysalis
+		--no_run_chrysalis
 
 echo "$(date): Finished trinity 1: Jellyfish and Inchworm"
